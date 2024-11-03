@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 import type { NextPage } from "next";
 import React, { useState, ChangeEvent, FormEvent } from "react";
@@ -11,10 +10,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { log } from "console";
 
+
 // Define all necessary interfaces
 interface WPConfig {
   siteUrl: string;
-  username: string; // Add username
+  username: string;
   applicationPassword: string;
 }
 
@@ -24,20 +24,163 @@ interface BlogPost {
   content: string;
 }
 
+interface ElementorData {
+  title: string;
+  content: string;
+  elementor_data: string;
+}
+
 type TagType = "name" | "phone" | "keyword" | "siteURL";
 
 interface Tags {
-  name: "{{enterprise}}";
-  phone: "{{phone}}";
-  keyword: "{{keyword}}";
-  siteURL: "{{siteURL}}";
+  name: string;
+  phone: string;
+  keyword: string;
+  siteURL: string;
 }
 
-// Add the ClaudeAPIResponse interface
 interface ClaudeAPIResponse {
-  content: string;
+  content: BlogPost | string;
   error?: string;
+  htmlContent?: boolean;
 }
+
+interface PresetTemplate {
+  name: string;
+  template: {
+    id: string;
+    elType: string;
+    settings: Record<string, any>;
+    elements: any[];
+  };
+}
+
+interface PresetTemplates {
+  [key: string]: PresetTemplate;
+}
+
+interface ElementorTemplateInputProps {
+  onTemplateChange: (template: any) => void;
+  className?: string;
+}
+
+// Fixed ElementorTemplateInput component
+const ElementorTemplateInput: React.FC<ElementorTemplateInputProps> = ({
+  onTemplateChange,
+}) => {
+  const [inputMethod, setInputMethod] = useState<"preset" | "paste">("preset");
+  const [templateJson, setTemplateJson] = useState<string>("");
+
+  const presetTemplates: PresetTemplates = {
+    default: {
+      name: "Default Template",
+      template: {
+        id: "default-template",
+        elType: "section",
+        settings: {},
+        elements: [],
+      },
+    },
+  };
+
+  const handleMethodChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setInputMethod(e.target.value as "preset" | "paste");
+    setTemplateJson("");
+    onTemplateChange(null);
+  };
+
+  return (
+    <div className="space-y-4 border p-4 rounded-lg">
+      <div className="space-y-2">
+        <h3 className="font-medium text-base">Choose Template Method</h3>
+        <div className="flex gap-4">
+          <div className="flex items-center">
+            <input
+              id="preset"
+              type="radio"
+              name="templateMethod"
+              value="preset"
+              checked={inputMethod === "preset"}
+              onChange={handleMethodChange}
+              className="w-4 h-4 border-gray-300"
+            />
+            <label htmlFor="preset" className="ml-2 text-sm font-medium text-gray-900">
+              Use Preset Template
+            </label>
+          </div>
+
+          <div className="flex items-center">
+            <input
+              id="paste"
+              type="radio"
+              name="templateMethod"
+              value="paste"
+              checked={inputMethod === "paste"}
+              onChange={handleMethodChange}
+              className="w-4 h-4 border-gray-300"
+            />
+            <label htmlFor="paste" className="ml-2 text-sm font-medium text-gray-900">
+              Paste Custom Template
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {inputMethod === "preset" ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-gray-900">Select Template</h3>
+          <div className="grid gap-2">
+            {Object.entries(presetTemplates).map(([key, template]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setTemplateJson(JSON.stringify(template.template, null, 2));
+                  onTemplateChange(template.template);
+                }}
+                className="px-4 py-2 text-left border rounded hover:bg-gray-50 text-sm"
+              >
+                {template.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-gray-900">
+            Paste Elementor Template JSON
+          </h3>
+          <textarea
+            value={templateJson}
+            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
+              const value = e.target.value;
+              setTemplateJson(value);
+              try {
+                const parsed = JSON.parse(value);
+                onTemplateChange(parsed);
+              } catch (error) {
+                console.error("Invalid JSON template:", error);
+              }
+            }}
+            placeholder="Paste your Elementor template JSON here..."
+            className="w-full h-48 p-2 text-sm font-mono border rounded-md"
+            spellCheck="false"
+          />
+          <p className="text-sm text-gray-500">
+            Use {"{{content}}"} as a placeholder where you want the content to be inserted.
+          </p>
+        </div>
+      )}
+
+      {templateJson && (
+        <div className="p-3 rounded-md bg-green-50 text-green-700 text-sm">
+          Template loaded successfully
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const Home: NextPage = () => {
   const [wpUrl, setWpUrl] = useState<string>("");
@@ -62,6 +205,7 @@ const Home: NextPage = () => {
   const [progress, setProgress] = useState<number>(0);
   const [processingStatus, setProcessingStatus] = useState<string>("");
   const [currentKeyword, setCurrentKeyword] = useState<string>("");
+  const [elementorTemplate, setElementorTemplate] = useState<any>(null);
 
   const insertTag = (tagType: TagType): void => {
     const tags: Tags = {
@@ -136,7 +280,7 @@ const Home: NextPage = () => {
     message: string,
     apiKey: string,
     generatePost: boolean = false
-  ): Promise<string> => {
+  ): Promise<BlogPost> => {
     try {
       const response = await fetch("/api/claude", {
         method: "POST",
@@ -149,94 +293,82 @@ const Home: NextPage = () => {
           generatePost,
         }),
       });
-
+  
       if (!response.ok) {
         throw new Error(
           `API request failed: ${response.status} ${response.statusText}`
         );
       }
+  
+      const data = await response.json() as ClaudeAPIResponse;
+    
 
-      const data = (await response.json()) as ClaudeAPIResponse;
+      
       if (data.error) {
         throw new Error(data.error);
       }
-
-      return data.content;
+  
+      // If it's a blog post, content will be a BlogPost object
+      if (generatePost) {
+        if (typeof data.content === 'string') {
+          // Handle string response (fallback case)
+          return {
+            title: `Blog Post`,
+            metaDescription: message.substring(0, 155),
+            content: data.content
+          };
+        }
+        return data.content as BlogPost;
+      }
+  
+      // If it's not a blog post, content will be a string
+      throw new Error('Expected blog post but received string content');
     } catch (error) {
       console.error("Error calling Claude API:", error);
       throw error;
     }
   };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
 
-    if (!apiKey) {
-      alert("Please enter your Claude API key.");
-      return;
-    }
+const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
+  e.preventDefault();
 
-    if (keywordList.length === 0) {
-      alert("Please add at least one keyword before submitting.");
-      return;
-    }
- 
+  if (!apiKey) {
+    alert("Please enter your Claude API key.");
+    return;
+  }
 
-    setIsLoading(true);
-    setShowResult(true);
-    setProgress(0);
+  if (keywordList.length === 0) {
+    alert("Please add at least one keyword before submitting.");
+    return;
+  }
 
-    try {
-      for (let i = 0; i < keywordList.length; i++) {
-        const keyword = keywordList[i];
-        setCurrentKeyword(keyword);
-        setProcessingStatus(
-          `Processing keyword: ${keyword} (${i + 1}/${keywordList.length})`
+  setIsLoading(true);
+  setShowResult(true);
+  setProgress(0);
+
+  try {
+    for (let i = 0; i < keywordList.length; i++) {
+      const keyword = keywordList[i];
+      setCurrentKeyword(keyword);
+      setProcessingStatus(
+        `Processing keyword: ${keyword} (${i + 1}/${keywordList.length})`
+      );
+
+      const messageWithKeyword = getPreviewText(keyword);
+      setSubmittedText(messageWithKeyword);
+
+      try {
+        // Now returns BlogPost directly
+        const blogPost = await callClaudeAPI(
+          messageWithKeyword,
+          apiKey,
+          true
         );
-
-        const messageWithKeyword = getPreviewText(keyword);
-        setSubmittedText(messageWithKeyword);
-
-        try {
-          const claudeResponse = await callClaudeAPI(
-            messageWithKeyword,
-            apiKey,
-            true
-          );
-          let blogPost: BlogPost;
-
+     
+        // No need for additional parsing since we get a BlogPost object
+       if (autoPost && wpConfig.siteUrl && wpConfig.username && wpConfig.applicationPassword) {
           try {
-            blogPost = JSON.parse(claudeResponse);
-            if (
-              !blogPost.title ||
-              !blogPost.metaDescription ||
-              !blogPost.content
-            ) {
-              throw new Error("Invalid blog post structure");
-            }
-          } catch (error) {
-            console.error("Failed to parse Claude response as JSON:", error);
-            blogPost = {
-              title: `Blog Post About ${keyword}`,
-              metaDescription: messageWithKeyword.substring(0, 155),
-              content: claudeResponse,
-            };
-          }
-
-
-          const postToWordPress = async (blogPost: BlogPost, keyword: string) => {
-            if (!wpConfig.siteUrl || !wpConfig.username || !wpConfig.applicationPassword) {
-              throw new Error('WordPress credentials are incomplete');
-            }
-          
-            /*console.log('Attempting WordPress post with config:', {
-              url: wpConfig.siteUrl,
-              username: wpConfig.username,
-              hasPassword: Boolean(wpConfig.applicationPassword)
-            });
-            */
-            console.log(blogPost);
-            
             const wpResponse = await fetch("/api/wordpress", {
               method: "POST",
               headers: {
@@ -247,10 +379,11 @@ const Home: NextPage = () => {
                 content: blogPost.content,
                 yoastMeta: {
                   focusKeyphrase: keyword,
+                  metaDesc: blogPost.metaDescription,
                   metaTitle: blogPost.title,
-                  metaDesc: blogPost.metaDescription
-                 
                 },
+                elementorData: JSON.stringify(elementorTemplate.template),
+                templateType: elementorTemplate.type,
                 wpCredentials: {
                   url: wpConfig.siteUrl.trim(),
                   username: wpConfig.username.trim(),
@@ -258,70 +391,62 @@ const Home: NextPage = () => {
                 },
               }),
             });
-          
-            const responseData = await wpResponse.json();
-            
+
             if (!wpResponse.ok) {
-              throw new Error(responseData.error || `WordPress API failed: ${wpResponse.status} ${wpResponse.statusText}`);
+              throw new Error(`WordPress API failed: ${wpResponse.status} ${wpResponse.statusText}`);
             }
-          
-            return responseData;
-          };
-          
-          // Use in your handleSubmit:
-          if (autoPost && wpConfig.siteUrl && wpConfig.username && wpConfig.applicationPassword) {
-            try {
-              await postToWordPress(blogPost, keyword);
-              setProcessingStatus(`Successfully posted to WordPress: ${blogPost.title}`);
-            } catch (error) {
-              console.error("Failed to post to WordPress:", error);
-              setProcessingStatus(
-                `Failed to post to WordPress: ${error instanceof Error ? error.message : 'Unknown error'}`
-              );
-            }
+
+            setProcessingStatus(
+              `Posted to WordPress with Elementor: ${blogPost.title}`
+            );
+          } catch (error) {
+            console.error("Failed to post to WordPress:", error);
+            setProcessingStatus(
+              `Failed to post to WordPress: ${
+                error instanceof Error ? error.message : "Unknown error"
+              }`
+            );
           }
-          // Save response to file
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-          const filename = `claude-response-${keyword}-${timestamp}.txt`;
-
-          const fileContent = `
-              Keyword: ${keyword}
-  
-  Original Message:
-  ${messageWithKeyword}
-  
-  Title: ${blogPost.title}
-  Meta Description: ${blogPost.metaDescription}
-  
-  Content:
-  ${blogPost.content}`;
-
-          downloadTextFile(fileContent, filename);
-          setProgress(((i + 1) / keywordList.length) * 100);
-        } catch (error) {
-          console.error(`Error processing keyword "${keyword}":`, error);
-          setProcessingStatus(
-            `Error processing keyword "${keyword}": ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`
-          );
-          continue;
         }
+       //Save response to file
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `${keyword}-${timestamp}.txt`;
+    
+      
+        const fileContent = `
+            Keyword: ${keyword}
+            Title: ${blogPost.title}
+            Content:${blogPost.content}`;
+        
+        downloadTextFile(fileContent, filename);
+       setProgress(((i + 1) / keywordList.length) * 100);
+      } catch (error) {
+        console.error(`Error processing keyword "${keyword}":`, error);
+      setProcessingStatus(
+          `Error processing keyword "${keyword}": ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      
+        continue;
       }
-
-      setProcessingStatus("All keywords processed successfully!");
-    } catch (error) {
-      console.error("Processing error:", error);
-      if (error instanceof Error) {
-        alert("Error processing request: " + error.message);
-      } else {
-        alert("An unknown error occurred");
-      }
-      setProcessingStatus("Error occurred during processing");
-    } finally {
-      setIsLoading(false);
     }
-  };
+
+    setProcessingStatus("All keywords processed successfully!");
+  } catch (error) {
+    console.error("Processing error:", error);
+    if (error instanceof Error) {
+      alert("Error processing request: " + error.message);
+    } else {
+      alert("An unknown error occurred");
+    }
+    setProcessingStatus("Error occurred during processing");
+  } finally {
+    setIsLoading(false);
+  }
+    
+};
+
 
   const handleReset = (): void => {
     setPhone("");
@@ -338,7 +463,7 @@ const Home: NextPage = () => {
     setSiteURL("");
     setWpConfig({
       siteUrl: "",
-      username: "", 
+      username: "",
       applicationPassword: "",
     });
     setAutoPost(false);
@@ -346,11 +471,11 @@ const Home: NextPage = () => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8 m-10">
-      <Card className="w-full max-w-2xl mx-auto">
+      <Card className="w-full max-w-2xl mx-auto p-2 rounded-md">
         <CardHeader>
           <CardTitle>Dynamic Message Form with Keywords</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-5 rounded-md">
           <div className="space-y-2">
             <Label htmlFor="apiKey">Claude API Key</Label>
             <Input
@@ -361,7 +486,7 @@ const Home: NextPage = () => {
               onChange={(e: ChangeEvent<HTMLInputElement>) =>
                 setApiKey(e.target.value)
               }
-              className="w-full"
+              className="w-full p-2"
               required
             />
           </div>
@@ -369,7 +494,10 @@ const Home: NextPage = () => {
           {/*wordpress */}
           <div className="space-y-4 border-t pt-4 mt-4">
             <h3 className="font-medium">WordPress Configuration (Optional)</h3>
-            <div className="space-y-2">
+            <ElementorTemplateInput
+              onTemplateChange={(template) => setElementorTemplate(template)}
+            />
+            <div className="space-y-2 ">
               <Label htmlFor="wpUrl">WordPress Site URL</Label>
               <Input
                 id="wpUrl"
@@ -516,6 +644,7 @@ const Home: NextPage = () => {
                 onClick={() => insertTag("name")}
                 size="sm"
                 variant="outline"
+                className="flex gap-1 mb-2"
               >
                 <Tag className="w-4 h-4 mr-2" />
                 Insert Enterprise Name
@@ -525,6 +654,7 @@ const Home: NextPage = () => {
                 onClick={() => insertTag("phone")}
                 size="sm"
                 variant="outline"
+                className="flex gap-1 mb-2"
               >
                 <Tag className="w-4 h-4 mr-2" />
                 Insert Phone
@@ -534,6 +664,7 @@ const Home: NextPage = () => {
                 onClick={() => insertTag("keyword")}
                 size="sm"
                 variant="outline"
+                className="flex gap-1 mb-2"
               >
                 <Tag className="w-4 h-4 mr-2" />
                 Insert Keyword
@@ -543,6 +674,7 @@ const Home: NextPage = () => {
                 onClick={() => insertTag("siteURL")}
                 size="sm"
                 variant="outline"
+                className="flex gap-1 mb-2"
               >
                 <Tag className="w-4 h-4 mr-2" />
                 Insert site URL

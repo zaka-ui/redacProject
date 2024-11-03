@@ -53,17 +53,25 @@ export async function POST(request: NextRequest) {
 
     // Access the content properly based on the new API structure
     const firstContent = msg.content[0];
-    const responseText = firstContent && 'text' in firstContent 
-      ? String(firstContent.text)
+    let responseText  = firstContent && 'text' in firstContent 
+      ? String(firstContent.text).trim()
       : '';
+    
 
     if (generatePost) {
       try {
-        // Try to parse the response as JSON
-        const parsedResponse = JSON.parse(responseText);
-        console.log(parsedResponse);
-        
-        return NextResponse.json({ content: responseText });
+        responseText = responseText.trim();
+      if (responseText.startsWith('```json')) {
+        responseText = responseText.replace(/```json\n?/, '').replace(/```$/, '');
+      }
+      
+      // Clean the response text
+      const cleanedResponse = responseText
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '') // Remove control characters except \n
+        .replace(/\r\n/g, '\n') // Normalize line endings
+        .replace(/\\([^"\\\/bfnrt])/g, '$1'); // Remove
+       
+        return NextResponse.json({ content: cleanedResponse });
       } catch (error) {
         console.error('Failed to parse Claude response:', error);
         // If parsing fails, create a structured response

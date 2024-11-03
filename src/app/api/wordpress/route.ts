@@ -1,3 +1,5 @@
+// app/api/wordpress/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 
 interface WordPressResponse {
@@ -12,27 +14,57 @@ interface WPCredentials {
   applicationPassword: string;
 }
 
-interface YoastMeta {
-  focusKeyphrase: string;
-  metaDesc: string;
-  metaTitle: string;
+interface ElementorTemplate {
+  title: string;
+  content: string;
+  template_type: string;
+  elementor_data: string;
 }
-
-async function createWordPressPost(
-  title: string,
-  content: string,
-  yoastMeta: YoastMeta,
-  credentials: WPCredentials
-) {
+async function getElementorVersion(credentials: WPCredentials) {
   const baseUrl = credentials.url.replace(/\/+$/, '');
-  const endpoint = `${baseUrl}/wp-json/wp/v2/pages`;
+  const endpoint = `${baseUrl}/wp-json/elementor/v1/system-info`;
 
-  // Properly encode authorization header
   const authString = `${credentials.username}:${credentials.applicationPassword}`;
   const base64Auth = Buffer.from(authString).toString('base64');
 
   try {
-    // First create the post
+    const response = await fetch(endpoint, {
+      headers: {
+        'Authorization': `Basic ${base64Auth}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      // Fallback to a safe default version if we can't get the actual version
+      return '3.7.0';
+    }
+
+    const data = await response.json();
+    return data.elementor?.version || '3.7.0';
+  } catch (error) {
+    console.error('Failed to get Elementor version:', error);
+    // Fallback to a safe default version
+    return '3.7.0';
+  }
+}
+async function createElementorPage(
+  title: string,
+  content: string,
+  yoastMeta: any,
+  elementorData: string,
+  credentials: WPCredentials
+) {
+  const elementorVersion = await getElementorVersion(credentials);
+  console.log('Detected Elementor version:', elementorVersion);
+  const baseUrl = credentials.url.replace(/\/+$/, '');
+  const endpoint = `${baseUrl}/wp-json/wp/v2/pages`;
+
+  const authString = `${credentials.username}:${credentials.applicationPassword}`;
+  const base64Auth = Buffer.from(authString).toString('base64');
+
+  try {
+    // First, create the page with Elementor data
     const postResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -41,65 +73,46 @@ async function createWordPressPost(
         'Accept': 'application/json',
       },
       body: JSON.stringify({
-        title: title,
+        title: `*** ${title}`,
         content: content,
         status: 'draft',
         meta: {
-          '_yoast_wpseo_focuskw': yoastMeta.focusKeyphrase,
-          '_yoast_wpseo_metadesc': yoastMeta.metaDesc,
-          '_yoast_wpseo_title': yoastMeta.metaTitle
+          _elementor_edit_mode: 'builder',
+          _elementor_template_type: 'page',
+          _elementor_version: elementorVersion,
+          _elementor_data: elementorData,
+          _wp_page_template: 'elementor_header_footer',
+          _yoast_wpseo_focuskw: yoastMeta.focusKeyphrase,
+          _yoast_wpseo_metadesc: yoastMeta.metaDesc,
+          _yoast_wpseo_title: yoastMeta.metaTitle
         }
       })
     });
 
     if (!postResponse.ok) {
       const errorData = await postResponse.json();
-      console.error('WordPress error details:', errorData);
       throw new Error(`${postResponse.status} ${postResponse.statusText} - ${JSON.stringify(errorData)}`);
     }
 
     const data: WordPressResponse = await postResponse.json();
 
-    // Update Yoast metadata using the REST API
-    const metaEndpoint = `${baseUrl}/wp-json/wp/v2/pages/${data.id}`;
-    const metaResponse = await fetch(metaEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${base64Auth}`,
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        meta: {
-          '_yoast_wpseo_focuskw': yoastMeta.focusKeyphrase,
-          '_yoast_wpseo_metadesc': yoastMeta.metaDesc,
-          '_yoast_wpseo_title': yoastMeta.metaTitle
-        }
-      })
-    });
-
-    if (!metaResponse.ok) {
-      console.error('Failed to update Yoast metadata:', await metaResponse.json());
-    }
-
-    // Also try updating via the Yoast REST API endpoint if available
+    // Update Elementor data using Elementor's API if needed
     try {
-      const yoastEndpoint = `${baseUrl}/wp-json/yoast/v1/meta/${data.id}`;
-      await fetch(yoastEndpoint, {
-        method: 'PATCH',
+      const elementorEndpoint = `${baseUrl}/wp-json/elementor/v1/document/save/draft`;
+      await fetch(elementorEndpoint, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Basic ${base64Auth}`,
-          'Accept': 'application/json',
         },
         body: JSON.stringify({
-          focus_keyword: yoastMeta.focusKeyphrase,
-          meta_description: yoastMeta.metaDesc,
-          title: yoastMeta.metaTitle
+          post_id: data.id,
+          status: 'draft',
+          elements: JSON.parse(elementorData),
         })
       });
     } catch (error) {
-      console.error('Failed to update via Yoast API:', error);
+      console.warn('Failed to update via Elementor API:', error);
     }
 
     return {
@@ -116,8 +129,7 @@ async function createWordPressPost(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, content, yoastMeta, wpCredentials } = body;
-    console.log("Received yoastMeta:", yoastMeta);
+    const { title, content, yoastMeta, wpCredentials, elementorData } = body;
 
     // Validate credentials
     if (!wpCredentials?.url || !wpCredentials?.username || !wpCredentials?.applicationPassword) {
@@ -127,15 +139,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate Yoast metadata
-    if (!yoastMeta?.focusKeyphrase || !yoastMeta?.metaDesc || !yoastMeta?.metaTitle) {
-      console.warn('Incomplete Yoast metadata:', yoastMeta);
-    }
-
-    const post = await createWordPressPost(
+    const post = await createElementorPage(
       title,
       content,
       yoastMeta,
+      elementorData,
       wpCredentials
     );
 
