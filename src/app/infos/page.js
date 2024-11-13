@@ -1,17 +1,6 @@
 const Info = () => {
     const info = `add_action('init', function() {
-    // Register focus keyword field
-    register_post_meta('page', '_yoast_wpseo_focuskw', [
-        'show_in_rest' => true,    // Make it available in REST API
-        'single' => true,          // Single value (not an array)
-        'type' => 'string',        // Data type
-        'auth_callback' => function() {
-            return current_user_can('edit_posts'); // Only allow editors/admins
-        }
-    ]);
-    
-    // Register meta description field
-    register_post_meta('page', '_yoast_wpseo_metadesc', [
+    register_post_meta('page', '_elementor_data', [
         'show_in_rest' => true,
         'single' => true,
         'type' => 'string',
@@ -19,9 +8,26 @@ const Info = () => {
             return current_user_can('edit_posts');
         }
     ]);
-    
-    // Register SEO title field
-    register_post_meta('page', '_yoast_wpseo_title', [
+
+    register_post_meta('page', '_elementor_edit_mode', [
+        'show_in_rest' => true,
+        'single' => true,
+        'type' => 'string',
+        'auth_callback' => function() {
+            return current_user_can('edit_posts');
+        }
+    ]);
+
+    register_post_meta('page', '_elementor_template_type', [
+        'show_in_rest' => true,
+        'single' => true,
+        'type' => 'string',
+        'auth_callback' => function() {
+            return current_user_can('edit_posts');
+        }
+    ]);
+
+    register_post_meta('page', '_elementor_version', [
         'show_in_rest' => true,
         'single' => true,
         'type' => 'string',
@@ -31,40 +37,28 @@ const Info = () => {
     ]);
 });
 
-// Optional: Also register for posts if you're creating posts
 add_action('init', function() {
-    // Register focus keyword field for posts
-    register_post_meta('post', '_yoast_wpseo_focuskw', [
+    register_post_meta('page', '_yoast_wpseo_focuskw', [
         'show_in_rest' => true,
         'single' => true,
         'type' => 'string',
-        'auth_callback' => function() {
-            return current_user_can('edit_posts');
-        }
     ]);
     
-    // Register meta description field for posts
-    register_post_meta('post', '_yoast_wpseo_metadesc', [
+    register_post_meta('page', '_yoast_wpseo_metadesc', [
         'show_in_rest' => true,
         'single' => true,
         'type' => 'string',
-        'auth_callback' => function() {
-            return current_user_can('edit_posts');
-        }
     ]);
     
-    // Register SEO title field for posts
-    register_post_meta('post', '_yoast_wpseo_title', [
+    register_post_meta('page', '_yoast_wpseo_title', [
         'show_in_rest' => true,
         'single' => true,
         'type' => 'string',
-        'auth_callback' => function() {
-            return current_user_can('edit_posts');
-        }
     ]);
-});`;
+});
+`;
   return (
-    <div>
+    <div className="space-y-4 border p-4 rounded-lg">
       <div>
       Log in to your WordPress admin panel
 Go to Users → Your Profile

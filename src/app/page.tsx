@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Tag, Loader2, Plus, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
+import {ElementorTemplateInput } from "@/components/ui/elementor";
+import {presetTemplates, ElementorTemplate} from "@/preset/default";
 import { log } from "console";
-
 
 // Define all necessary interfaces
 interface WPConfig {
@@ -18,17 +19,22 @@ interface WPConfig {
   applicationPassword: string;
 }
 
-interface BlogPost {
-  title: string;
-  metaDescription: string;
-  content: string;
+type BlogPost = {
+  content: {
+    title: string;
+    metaDescription: string;
+    content: string;
+  }
 }
 
-interface ElementorData {
-  title: string;
-  content: string;
-  elementor_data: string;
+type BlogContent = {
+    title: string;
+    metaDescription: string;
+    content: string;
 }
+type Sanitization = BlogPost | string;
+
+
 
 type TagType = "name" | "phone" | "keyword" | "siteURL";
 
@@ -39,157 +45,35 @@ interface Tags {
   siteURL: string;
 }
 
-interface ClaudeAPIResponse {
-  content: BlogPost | string;
+type ClaudeAPIResponse = {
+  content: string | BlogPost;
   error?: string;
   htmlContent?: boolean;
 }
-
-interface PresetTemplate {
-  name: string;
-  template: {
-    id: string;
-    elType: string;
-    settings: Record<string, any>;
-    elements: any[];
-  };
+type Blog = {
+  title?: string;
+  metaDescription?: string;
+  content?: string;
 }
-
-interface PresetTemplates {
-  [key: string]: PresetTemplate;
+interface elementorData {
+  template : ElementorTemplate[] | string;
+  type: string;
 }
-
-interface ElementorTemplateInputProps {
-  onTemplateChange: (template: any) => void;
-  className?: string;
-}
-
-// Fixed ElementorTemplateInput component
-const ElementorTemplateInput: React.FC<ElementorTemplateInputProps> = ({
-  onTemplateChange,
-}) => {
-  const [inputMethod, setInputMethod] = useState<"preset" | "paste">("preset");
-  const [templateJson, setTemplateJson] = useState<string>("");
-
-  const presetTemplates: PresetTemplates = {
-    default: {
-      name: "Default Template",
-      template: {
-        id: "default-template",
-        elType: "section",
-        settings: {},
-        elements: [],
-      },
-    },
-  };
-
-  const handleMethodChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setInputMethod(e.target.value as "preset" | "paste");
-    setTemplateJson("");
-    onTemplateChange(null);
-  };
-
-  return (
-    <div className="space-y-4 border p-4 rounded-lg">
-      <div className="space-y-2">
-        <h3 className="font-medium text-base">Choose Template Method</h3>
-        <div className="flex gap-4">
-          <div className="flex items-center">
-            <input
-              id="preset"
-              type="radio"
-              name="templateMethod"
-              value="preset"
-              checked={inputMethod === "preset"}
-              onChange={handleMethodChange}
-              className="w-4 h-4 border-gray-300"
-            />
-            <label htmlFor="preset" className="ml-2 text-sm font-medium text-gray-900">
-              Use Preset Template
-            </label>
-          </div>
-
-          <div className="flex items-center">
-            <input
-              id="paste"
-              type="radio"
-              name="templateMethod"
-              value="paste"
-              checked={inputMethod === "paste"}
-              onChange={handleMethodChange}
-              className="w-4 h-4 border-gray-300"
-            />
-            <label htmlFor="paste" className="ml-2 text-sm font-medium text-gray-900">
-              Paste Custom Template
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {inputMethod === "preset" ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium text-gray-900">Select Template</h3>
-          <div className="grid gap-2">
-            {Object.entries(presetTemplates).map(([key, template]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => {
-                  setTemplateJson(JSON.stringify(template.template, null, 2));
-                  onTemplateChange(template.template);
-                }}
-                className="px-4 py-2 text-left border rounded hover:bg-gray-50 text-sm"
-              >
-                {template.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium text-gray-900">
-            Paste Elementor Template JSON
-          </h3>
-          <textarea
-            value={templateJson}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
-              const value = e.target.value;
-              setTemplateJson(value);
-              try {
-                const parsed = JSON.parse(value);
-                onTemplateChange(parsed);
-              } catch (error) {
-                console.error("Invalid JSON template:", error);
-              }
-            }}
-            placeholder="Paste your Elementor template JSON here..."
-            className="w-full h-48 p-2 text-sm font-mono border rounded-md"
-            spellCheck="false"
-          />
-          <p className="text-sm text-gray-500">
-            Use {"{{content}}"} as a placeholder where you want the content to be inserted.
-          </p>
-        </div>
-      )}
-
-      {templateJson && (
-        <div className="p-3 rounded-md bg-green-50 text-green-700 text-sm">
-          Template loaded successfully
-        </div>
-      )}
-    </div>
-  );
-};
 
 
 const Home: NextPage = () => {
+  const maxTokenLimit = 1024;  // Adjust based on the API's token limit
+
   const [wpUrl, setWpUrl] = useState<string>("");
   const [wpConfig, setWpConfig] = useState<WPConfig>({
     siteUrl: "",
     username: "", // Add username state
     applicationPassword: "",
   });
-
+  const [elementorTemplate, setElementorTemplate] = useState<elementorData>({
+    template: presetTemplates, // default structure
+    type: "default", // or another type you expect as a default
+  });
   const [autoPost, setAutoPost] = useState<boolean>(false);
   const [phone, setPhone] = useState<string>("");
   const [enterprise, setEnterprise] = useState<string>("");
@@ -205,7 +89,6 @@ const Home: NextPage = () => {
   const [progress, setProgress] = useState<number>(0);
   const [processingStatus, setProcessingStatus] = useState<string>("");
   const [currentKeyword, setCurrentKeyword] = useState<string>("");
-  const [elementorTemplate, setElementorTemplate] = useState<any>(null);
 
   const insertTag = (tagType: TagType): void => {
     const tags: Tags = {
@@ -236,7 +119,7 @@ const Home: NextPage = () => {
   const handleAddKeywords = (): void => {
     if (keywords.trim()) {
       const newKeywords = keywords
-        .split(",")
+        .split("|")
         .map((k) => k.trim())
         .filter((k) => k);
       setKeywordList((prevList: string[]) => {
@@ -295,44 +178,31 @@ const Home: NextPage = () => {
       });
   
       if (!response.ok) {
-        throw new Error(
-          `API request failed: ${response.status} ${response.statusText}`
-        );
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
   
       const data = await response.json() as ClaudeAPIResponse;
-    
-
+      //console.log("data " , data);
       
+  
       if (data.error) {
         throw new Error(data.error);
       }
   
-      // If it's a blog post, content will be a BlogPost object
-      if (generatePost) {
-        if (typeof data.content === 'string') {
-          // Handle string response (fallback case)
-          return {
-            title: `Blog Post`,
-            metaDescription: message.substring(0, 155),
-            content: data.content
-          };
-        }
-        return data.content as BlogPost;
-      }
-  
-      // If it's not a blog post, content will be a string
-      throw new Error('Expected blog post but received string content');
+      return data.content as BlogPost;
     } catch (error) {
       console.error("Error calling Claude API:", error);
       throw error;
     }
   };
 
+  const delay = async (ms: number) => {
+    return new Promise(resolve => setTimeout(resolve, 1000));
+  };
 
 const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
   e.preventDefault();
-
+  
   if (!apiKey) {
     alert("Please enter your Claude API key.");
     return;
@@ -354,18 +224,144 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
       setProcessingStatus(
         `Processing keyword: ${keyword} (${i + 1}/${keywordList.length})`
       );
-
       const messageWithKeyword = getPreviewText(keyword);
       setSubmittedText(messageWithKeyword);
-
       try {
         // Now returns BlogPost directly
-        const blogPost = await callClaudeAPI(
-          messageWithKeyword,
-          apiKey,
-          true
-        );
-     
+        const processPromptByDelimiter = async (largeMessage: string, apiKey: string) => {
+          const splitPrompt = (message: string): string[] => {
+            // Split the message based on the '|' delimiter
+            return message.split("|");
+          };
+          const parsePrompt = largeMessage.replace(/\,/g," ");
+          const chunks = splitPrompt(parsePrompt);
+          console.log(chunks);
+          let previousResponse = "";
+          let finalContent = [];
+          let blogTitle="";
+          let blogMeta="";
+          for (let i = 0; i < chunks.length; i++) {
+            // Append previous response if needed
+            
+            const messageWithContext = i === 0 ? chunks[i] : `here is the previous response that you give me: ${previousResponse} now here is the new content: ${chunks[i]}. Continue.`;
+            // Call the API for each chunk
+            try {
+              const blogPost = await callClaudeAPI(messageWithContext, apiKey, true);
+              const sanitizedResponse = blogPost.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+              const blogContent  = JSON.parse(sanitizedResponse);
+              blogTitle = blogContent.title;
+              blogMeta = blogContent.metaDescription;
+              const blogText = blogContent.content;
+              delay(1000);
+              if (blogText) {
+                previousResponse = blogText;
+                finalContent.push(blogText);
+              } else {
+                console.warn("blogPost.content is undefined for chunk:", chunks[i]);
+              }
+            } catch (error) {
+              console.error("Error during chunk processing:", error);
+              break;  // Optionally break if an error occurs
+            }
+          }
+          console.log("Blog title =============================> ",blogTitle);
+          console.log("blog Meta =============================> ",blogMeta);
+          console.log("final content =============================> ",finalContent);
+          
+          return {
+            blogTitle,blogMeta,finalContent
+          };  // Return the final merged content
+          
+        };
+       
+
+        const blogPost = await processPromptByDelimiter(messageWithKeyword, apiKey);
+        
+      
+        
+       /*   const blogPost : BlogPost = await callClaudeAPI(messageWithKeyword, apiKey, true);
+        
+         if(blogPost) {
+           try {
+              const blogContent :BlogContent  = JSON.parse(blogPost);
+              const blogTile = blogContent.title;
+              const blogMeta = blogContent.metaDescription;
+              const blogText = blogContent.content;
+              console.log(blogTile);
+              console.log(blogMeta);
+              console.log(blogText);
+              
+
+           } catch (error) {
+            
+           } 
+        
+        } */
+        
+
+      /****************************elementor template ******************************/
+      const changeTemplate = typeof elementorTemplate.template === 'string' 
+      ? JSON.parse(elementorTemplate.template) 
+        : elementorTemplate.template;
+      //console.log(changeTemplate);
+      // Example of assigning custom text to each widget
+const titleTextMapping : Record<string, string>  = {
+  "4bc1b502": "Custom Title 1",
+  "5242351e": "Custom Title 2",
+  "1388abb": "Custom Title 3",
+  "1a00c222": "Custom Title 4",
+  "592043d5": "Custom Title 4",
+  "53b58657": "Custom Title 4",
+  "aba0956": "Custom Title 4",
+  "7da58458": "Custom FAQ Title",
+};
+
+const editorTextMapping : Record<string, string>  = {
+  "567d9aa9": "<p>paragraphe h1 Custom editor content for 567d9aa9.</p>",
+  "2e53f894": "<p>paragraphe h2 one Custom editor content for 1716d02d.</p>",
+  "39852c74": "<p>paragraphe h2 two Custom editor content for 178c5ed3.</p>",
+  "52dbd677": "<p>CTA PRRRRRRRRRRR paragraphe h2 two Custom editor content for 178c5ed3.</p>",
+  "55e26b94": "<p>Custom editor content for 62e38c61.</p>",
+  "178c5ed3": "<p>DZADOAPZDIOAZJD Custom editor content for 62e38c61.</p>",
+  "62e38c61": "<p>DJZADJAZODJAZ Custom editor content for 62e38c61.</p>",
+  "1716d02d": "<p>Custom editor content for 39852c74.</p>",
+};
+
+// Function to update titles and editor text with custom values
+const ff = (elements :ElementorTemplate[]) => { 
+  return elements.map((element) => {
+      // Check if the element is a widget
+      if (element.elType === "widget") {
+          // Update title based on specific widget ID (from titleTextMapping)
+          if (element.widgetType === "heading" && titleTextMapping[element.id]) {
+            element.settings.title = titleTextMapping[element.id];
+        }
+          
+          // Update editor content based on specific widget ID (from editorTextMapping)
+          if (element.widgetType === "text-editor" && editorTextMapping[element.id]) {
+              element.settings.editor = editorTextMapping[element.id];
+          }
+      }
+
+      // If the element has nested elements, process them recursively
+      if (element.elements && element.elements.length > 0) {
+          element.elements = ff(element.elements);
+      }
+
+      return element; // Return modified element
+  });
+}
+
+// Process the top-level structure to update nested elements
+ const updatedTemplate = changeTemplate.map((item :ElementorTemplate) => {
+  if (item.elements && item.elements.length > 0) {
+      item.elements = ff(item.elements);
+  }
+  return item;
+});
+    const jsonString = JSON.stringify(updatedTemplate);
+    
+
         // No need for additional parsing since we get a BlogPost object
        if (autoPost && wpConfig.siteUrl && wpConfig.username && wpConfig.applicationPassword) {
           try {
@@ -375,14 +371,14 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                title: blogPost.title,
+                title: keyword,
                 content: blogPost.content,
                 yoastMeta: {
                   focusKeyphrase: keyword,
-                  metaDesc: blogPost.metaDescription,
-                  metaTitle: blogPost.title,
+                  metaDesc: blogPost.content.metaDescription,
+                  metaTitle: blogPost.content.title,
                 },
-                elementorData: JSON.stringify(elementorTemplate.template),
+                elementorData: jsonString,
                 templateType: elementorTemplate.type,
                 wpCredentials: {
                   url: wpConfig.siteUrl.trim(),
@@ -408,25 +404,28 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
             );
           }
         }
+ 
+      
        //Save response to file
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      /*const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `${keyword}-${timestamp}.txt`;
     
       
-        const fileContent = `
-            Keyword: ${keyword}
-            Title: ${blogPost.title}
-            Content:${blogPost.content}`;
-        
-        downloadTextFile(fileContent, filename);
-       setProgress(((i + 1) / keywordList.length) * 100);
+      const fileContent = `
+      Keyword: ${keyword}
+      Title: ${blogPost.title}
+      Content:${blogPost.content}`;
+      downloadTextFile(fileContent, filename);
+
+      */
+      setProgress(((i + 1) / keywordList.length) * 100);
       } catch (error) {
-        console.error(`Error processing keyword "${keyword}":`, error);
+      console.error(`Error processing keyword "${keyword}":`, error);
       setProcessingStatus(
-          `Error processing keyword "${keyword}": ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
+      `Error processing keyword "${keyword}": ${
+      error instanceof Error ? error.message : "Unknown error"
+      }`
+      );
       
         continue;
       }
@@ -444,7 +443,6 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
   } finally {
     setIsLoading(false);
   }
-    
 };
 
 
@@ -494,9 +492,7 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
           {/*wordpress */}
           <div className="space-y-4 border-t pt-4 mt-4">
             <h3 className="font-medium">WordPress Configuration (Optional)</h3>
-            <ElementorTemplateInput
-              onTemplateChange={(template) => setElementorTemplate(template)}
-            />
+            <ElementorTemplateInput elementorTemplate ={elementorTemplate?.template}  onTemplateChange={(template) => setElementorTemplate(template)} />
             <div className="space-y-2 ">
               <Label htmlFor="wpUrl">WordPress Site URL</Label>
               <Input
@@ -605,7 +601,7 @@ const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
               <Input
                 id="keywords"
                 type="text"
-                placeholder="Enter keywords, separated by commas"
+                placeholder="Enter keywords | separated by commas"
                 value={keywords}
                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
                   setKeywords(e.target.value)

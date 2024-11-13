@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const msg = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1024,
+      max_tokens: 3000,
       messages: [{ 
         role: "user", 
         content: generatePost ? 
@@ -67,9 +67,11 @@ export async function POST(request: NextRequest) {
       
       // Clean the response text
       const cleanedResponse = responseText
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '') // Remove control characters except \n
-        .replace(/\r\n/g, '\n') // Normalize line endings
-        .replace(/\\([^"\\\/bfnrt])/g, '$1'); // Remove
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+        .replace( /\n\n/g,'') // Remove control characters except \n
+        .replace(/\n/g,'') // Normalize line endings
+
+        
        
         return NextResponse.json({ content: cleanedResponse });
       } catch (error) {
